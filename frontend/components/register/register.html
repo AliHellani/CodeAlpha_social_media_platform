@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width= device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="./register_style.css" />
+    <title>Social Media Platform</title>
+  </head>
+  <body>
+    <div class="form-container">
+      <p class="title">Let's Connect</p>
+      <form id="registerForm" enctype="multipart/form-data">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required />
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" required />
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required />
+
+        <label for="bio">Bio:</label>
+        <textarea id="bio" name="bio"></textarea>
+
+        <label for="profilePicture">Profile Picture:</label>
+        <input
+          type="file"
+          id="profilePicture"
+          name="profilePicture"
+          accept="image/png, image/jpg"
+        />
+        <img
+          id="profilePicturePreview"
+          src="#"
+          alt="Profile Picture Preview"
+          style="display: none"
+        />
+
+        <button type="submit">Register</button>
+      </form>
+      <div class="login-link">
+        You have an Account? <a href="../../index.html">Log in</a>
+      </div>
+    </div>
+    <script>
+      document
+        .getElementById("registerForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const fileInput = document.getElementById("profilePicture");
+          const file = fileInput.files[0];
+
+          if (file && fileInput.files.length === 1 && file.size > 0) {
+            const formData = new FormData(
+              document.getElementById("registerForm")
+            );
+
+            const response = await fetch("/register", {
+              method: "POST",
+              body: formData,
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Success!",
+                text: data.message,
+                confirmButtonText: "OK",
+              });
+
+              const user = {
+                username: formData.get("username"),
+                email: formData.get("email"),
+                bio: formData.get("bio"),
+                profile_picture: formData.get("profilePicture"),
+              };
+
+              localStorage.setItem("user", JSON.stringify(user));
+              localStorage.setItem("token", data.token);
+
+              window.location.href = "../../index.html";
+            } else {
+              Swal.fire({
+                icon: "error",
+                title: "Error!",
+                text: data.error,
+                confirmButtonText: "OK",
+              });
+            }
+          } else {
+            Swal.fire({
+              icon: "error",
+              title: "Error!",
+              text: "Please select a valid profile picture.",
+              confirmButtonText: "OK",
+            });
+          }
+        });
+
+      document
+        .getElementById("profilePicture")
+        .addEventListener("change", function (e) {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+              document.getElementById("profilePicturePreview").src =
+                e.target.result;
+              document.getElementById("profilePicturePreview").style.display =
+                "block";
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+    </script>
+  </body>
+</html>

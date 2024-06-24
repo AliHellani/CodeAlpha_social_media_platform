@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="./home.css" />
+
+    <title>Social Media Platform</title>
+  </head>
+  <body>
+    <div class="home-container">
+      <div class="left-container">
+        <div class="create-post-container">
+          <textarea
+            id="postContent"
+            placeholder="What's on your mind?"
+          ></textarea>
+          <button id="submitPostBtn">Post</button>
+        </div>
+        <div id="posts" class="posts"></div>
+      </div>
+      <div id="profile" class="profile"></div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        const token = localStorage.getItem("token");
+        const user = JSON.parse(localStorage.getItem("user"));
+
+        if (!token || !user) {
+          window.location.href = "../../index.html";
+          return;
+        }
+
+        // Set default profile picture if null
+        const profilePicture = user.profile_picture
+          ? `../../images/profile-picture/${user.profile_picture}?${Date.now()}`
+          : "../../images/home.PNG";
+
+        document.getElementById("profile").innerHTML = `
+        <div class="profile-box">
+            <div class="profile-picture-container">
+                <img src="${profilePicture}" alt="Profile Picture" class="profile-picture"/>
+                <i class="fas fa-camera edit-icon" id="editProfilePic"></i>
+            </div>
+            <br>
+            <div class="username-container">
+                <p class="username">${user.username}</p>
+                <i class="fas fa-edit edit-icon" id="editUsername"></i>
+            </div>
+            <br>
+            <div class="bio-container">
+                <p class="bio">${user.bio}</p>
+                <i class="fas fa-edit edit-icon" id="editBio"></i>
+            </div>
+            <br>
+            <input type="file" id="profilePicInput" accept="image/png, image/jpg" style="display: none;" />
+            <button id="logoutBtn">Logout</button>
+        </div>
+        `;
+
+        await displayPosts();
+
+        document
+          .getElementById("submitPostBtn")
+          .addEventListener("click", async () => {
+            const content = document.getElementById("postContent").value;
+
+            try {
+              const response = await fetch("/post", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ content }),
+              });
+
+              const data = await response.json();
+              if (response.ok) {
+                Swal.fire({
+                  icon: "success",
+                  title: "Success",
+                  text: data.message,
+                });
+
+                document.getElementById("postContent").value = "";
+
+                displayPosts();
+              } else {
+                Swal.fire({
+                  icon: "error",
+                  title: "Error",
+                  text: data.error,
+                });
+              }
+            } catch (error) {
+              console.error("Error creating post:", error.message);
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: "An error occurred while creating your post. Please try again later.",
+              });
+            }
+          });
+
+        // Display POSTS
+        async function displayPosts() {
+          try {
+            const response = await fetch("/findAllPost", {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            let data = await response.json();
+
+            data = data.reverse();
+
+            const postsContainer = document.getElementById("posts");
+
+            postsContainer.innerHTML = "";
+
+            data.forEach((post) => {
+              const postProfilePicture = post.profile_picture
+                ? `/images/profile-picture/${
+                    post.profile_picture
+                  }?${Date.now()}`
+                : "../../images/home.PNG";
+
+              const postElement = document.createElement("div");
+              postElement.className = "post";
+              postElement.innerHTML = `
+                <div class="post-header">
+                  <img src="${postProfilePicture}" alt="Profile Picture" class="post-profile-picture"/>
+                  <p class="post-username">${post.username}</p>
+                </div>
+                <p>${post.content}</p>
+                <small>Posted on: ${new Date(
+                  post.created_at
+                ).toLocaleString()}</small>
+                <div class="post-footer">
+                  <div class="actions">
+
+                    <button class="like-btn ${post.isLiked ? "liked" : ""}"
+                       data-post-id="${post.post_id}">
+                     <i class="fas fa-heart ${
+                       post.isLiked ? "filled" : "outline"
+                     }"></i>
+                    </button>
+
+                    ${
+                      post.user_id === user.user_id
+                        ? ' <i class="fas fa-trash-alt delete-post"></i>'
+                        : ""
+                    }
+                  </div>
+                  <div class="like-count">0 Likes</div>
+
+                  <div class="comments-container" id="comments-${
+                    post.post_id
+                  }"></div>
+                  <div class="comment-input">
+                   <textarea class="comment-content" placeholder="Add a comment..."></textarea>
+                   <button class="submit-comment" data-post-id="${
+                     post.post_id
+                   }">Submit
+                    </button>
+                 </div>
+                </div>
+              `;
+              postsContainer.appendChild(postElement);
+
+              // Display Like Count
+              updateLikeCount(
+                post.post_id,
+                postElement.querySelector(".like-count")
+              );
+
+              // Initialize like button state based on local storage
+              const likeButton = postElement.querySelector(".like-btn");
+              const isLiked = JSON.parse(
+                localStorage.getItem(`post_${post.post_id}_liked`)
+              );
+              if (isLiked) {
+                likeButton.classList.add("liked");
+                likeButton
+                  .querySelector("i.fas.fa-heart")
+                  .classList.add("filled");
+              }
+              // Like/Unlike
+              likeButton.addEventListener("click", () =>
+                handleLikePost(post, likeButton, postElement)
+              );
+
+              // Delete Post
+              if (post.user_id === user.user_id) {
+                const deleteButton = postElement.querySelector(".delete-post");
+                deleteButton.addEventListener("click", () =>
+                  handleDeletePost(post, postElement)
+                );
+              }
+
+              // Fetch and display existing comments for the post
+              fetchAndDisplayComments(post.post_id, postElement);
+
+              //Comments
+              const submitCommentButton =
+                postElement.querySelector(".submit-comment");
+              submitCommentButton.addEventListener("click", async () => {
+                const commentContent = postElement
+                  .querySelector(".comment-content")
+                  .value.trim();
+
+                if (commentContent) {
+                  const commentData = {
+                    content: commentContent,
+                    post_id: post.post_id,
+                    user_id: user.user_id,
+                  };
+
+                  const commentResponse = await fetch("/comment", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify(commentData),
+                  });
+
+                  const commentResult = await commentResponse.json();
+
+                  if (commentResult) {
+                    displayComment(
+                      post.post_id,
+                      commentData.content,
+                      user.username,
+                      user.user_id,
+                      commentResult.comment_id,
+                      postElement.querySelector(`#comments-${post.post_id}`)
+                    );
+                    postElement.querySelector(".comment-content").value = "";
+                  } else {
+                    Swal.fire({
+                      icon: "error",
+                      title: "Error",
+                      text: commentResult.message,
+                    });
+                  }
+                } else {
+                  Swal.fire({
+                    icon: "error",
+                    title: "Error",
+                    text: "Comment content cannot be empty",
+                  });
+                }
+              });
+            });
+          } catch (error) {
+            console.error("Error fetching posts:", error.message);
+          }
+        }
+
+        //Find Comments
+        async function fetchAndDisplayComments(postId, postElement) {
+          try {
+            const response = await fetch(`/findCommentByPostId/${postId}`, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            const comments = await response.json();
+
+            if (Array.isArray(comments)) {
+              const commentsContainer = postElement.querySelector(
+                `#comments-${postId}`
+              );
+              commentsContainer.innerHTML = "";
+              comments.forEach((comment) => {
+                displayComment(
+                  postId,
+                  comment.content,
+                  comment.username,
+                  comment.user_id,
+                  comment.comment_id,
+                  commentsContainer
+                );
+              });
+            } else {
+              console.error("Comments response is not an array:", comments);
+            }
+          } catch (error) {
+            console.error("Error fetching comments:", error.message);
+          }
+        }
+
+        function displayComment(
+          postId,
+          content,
+          username,
+          userId,
+          commentId,
+          commentsContainer = null
+        ) {
+          if (!commentsContainer) {
+            commentsContainer = document.getElementById(`comments-${postId}`);
+          }
+
+          const commentElement = document.createElement("div");
+          commentElement.className = "comment";
+          commentElement.dataset.commentId = commentId;
+
+          commentElement.innerHTML = `
+          <div class="comment-content-container">
+              <p class="comment-text"><strong>${username}</strong>: ${content}</p>
+              ${
+                userId === user.user_id
+                  ? `<i class="fas fa-trash-alt delete-icon" data-comment-id="${commentId}"></i>`
+                  : ""
+              }
+           </div>
+          `;
+
+          commentsContainer.appendChild(commentElement);
+
+          // Delete Comment
+          const deleteIcon = commentElement.querySelector(".delete-icon");
+          if (deleteIcon) {
+            deleteIcon.addEventListener("click", async () => {
+              await deleteComment(commentId, commentElement);
+            });
+          }
+        }
+
+        //ADD LIKE/UNLIKE
+        async function handleLikePost(post, likeButton, postElement) {
+          try {
+            const liked = likeButton.classList.toggle("liked");
+
+            // Update local storage with liked status
+            localStorage.setItem(`post_${post.post_id}_liked`, liked);
+
+            const response = await fetch(
+              `/${liked ? "like" : "unlike"}/${post.post_id}`,
+              {
+                method: liked ? "POST" : "DELETE",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              }
+            );
+
+            const data = await response.json();
+            if (response.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Success",
+                text: data.message,
+              });
+
+              updateLikeCount(
+                post.post_id,
+                postElement.querySelector(".like-count")
+              );
+
+              const heartIcon = likeButton.querySelector("i.fas.fa-heart");
+
+              if (liked) {
+                heartIcon.classList.add("filled");
+                heartIcon.classList.remove("outline");
+              } else {
+                heartIcon.classList.add("outline");
+                heartIcon.classList.remove("filled");
+              }
+            } else {
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: data.error,
+              });
+            }
+          } catch (error) {
+            console.error("Error liking/unliking post:", error.message);
+            Swal.fire({
+              icon: "error",
+              title: "Error",
+              text: "An error occurred while liking the post. Please try again later.",
+            });
+          }
+        }
+
+        // DELETE POST
+        async function handleDeletePost(post, postElement) {
+          const confirmation = await Swal.fire({
+            title: "Are you sure you want to delete this post?",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#3085d6",
+            cancelButtonColor: "#d33",
+            confirmButtonText: "Yes, delete it!",
+          });
+
+          if (confirmation.isConfirmed) {
+            try {
+              const response = await fetch(`/deletePost/${post.post_id}`, {
+                method: "DELETE",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+              const data = await response.json();
+              if (response.ok) {
+                Swal.fire("Deleted!", "Your post has been deleted.", "success");
+                postElement.remove();
+              } else {
+                Swal.fire({
+                  icon: "error",
+                  title: "Oops...",
+                  text: data.error,
+                });
+              }
+            } catch (error) {
+              console.error("Error deleting post:", error.message);
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: "An error occurred while deleting the post. Please try again later.",
+              });
+            }
+          }
+        }
+
+        // Update like count for a post
+        async function updateLikeCount(postId, likeCountElement) {
+          try {
+            const response = await fetch(`/likes/${postId}`, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            const data = await response.json();
+            if (response.ok) {
+              likeCountElement.textContent = `${data.like_count} Likes`;
+            } else {
+              console.error(data.error);
+            }
+          } catch (error) {
+            console.error("Error fetching like count:", error.message);
+          }
+        }
+
+        // Handle profile editing
+        document
+          .getElementById("editProfilePic")
+          .addEventListener("click", () => {
+            document.getElementById("profilePicInput").click();
+          });
+
+        document
+          .getElementById("profilePicInput")
+          .addEventListener("change", async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+              await updateUserProfile({ profilePicture: file });
+            }
+          });
+
+        document
+          .getElementById("editUsername")
+          .addEventListener("click", () => {
+            const newUsername = prompt("Enter your new username:");
+            if (newUsername) {
+              updateUserProfile({ username: newUsername });
+            }
+          });
+
+        document.getElementById("editBio").addEventListener("click", () => {
+          const newBio = prompt("Enter your new bio:");
+          if (newBio) {
+            updateUserProfile({ bio: newBio });
+          }
+        });
+
+        // Update Profile User:
+        async function updateUserProfile(updatedData) {
+          const token = localStorage.getItem("token");
+          const user = JSON.parse(localStorage.getItem("user"));
+
+          if (!token) {
+            Swal.fire({
+              icon: "warning",
+              title: "Warning",
+              text: "You need to log in to perform this action.",
+            });
+
+            return;
+          }
+
+          const formData = new FormData();
+          for (const key in updatedData) {
+            formData.append(key, updatedData[key]);
+          }
+
+          try {
+            const response = await fetch(`/updateUser/${user.user_id}`, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              body: formData,
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Success",
+                text: data.message,
+              });
+
+              // Update local storage with new user data
+              Object.assign(user, updatedData);
+              localStorage.setItem("user", JSON.stringify(user));
+
+              // Update UI with new user data
+              if (updatedData.profilePicture) {
+                if (data.profilePicturePath) {
+                  document.querySelector(".profile-picture").src =
+                    data.profilePicturePath;
+                } else {
+                  console.error("Error: profilePicturePath is undefined");
+                }
+              }
+              if (updatedData.username) {
+                document.querySelector(".username").textContent =
+                  updatedData.username;
+              }
+              if (updatedData.bio) {
+                document.querySelector(".bio").textContent = updatedData.bio;
+              }
+            } else {
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: data.error,
+              });
+            }
+          } catch (error) {
+            console.error("Error updating user profile:", error.message);
+            Swal.fire({
+              icon: "error",
+              title: "Error",
+              text: "An error occurred while updating your profile. Please try again later.",
+            });
+          }
+        }
+
+        // Delete Comment
+        async function deleteComment(commentId, commentElement) {
+          try {
+            const response = await fetch(`/deleteComment/${commentId}`, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (response.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Deleted",
+                text: "Comment deleted successfully.",
+              });
+              commentElement.remove();
+            } else {
+              const result = await response.json();
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: result.message,
+              });
+            }
+          } catch (error) {
+            console.error("Error deleting comment:", error.message);
+            Swal.fire({
+              icon: "error",
+              title: "Error",
+              text: "An error occurred while deleting the comment. Please try again later.",
+            });
+          }
+        }
+
+        document
+          .getElementById("logoutBtn")
+          .addEventListener("click", async () => {
+            const confirmation = await Swal.fire({
+              title: "Are you sure you want to logout?",
+              icon: "warning",
+              showCancelButton: true,
+              confirmButtonColor: "#3085d6",
+              cancelButtonColor: "#d33",
+              confirmButtonText: "Yes, logout",
+              cancelButtonText: "Cancel",
+            });
+
+            if (confirmation.isConfirmed) {
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              window.location.href = "../../index.html";
+            }
+          });
+      });
+    </script>
+  </body>
+</html>
